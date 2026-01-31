@@ -4,7 +4,7 @@
 # chmod +x /home/user/Desktop/FDIRV/socks2vpn.sh
 
 # Add alias in:
-# ~/.zshrc
+# ~/.bashrc or ~/.zshrc
 # # FDIRV
 # alias vpn="sudo /home/user/Desktop/FDIRV/socks2vpn.sh"
 
@@ -25,32 +25,43 @@ else
     exit 1
 fi
 
-jq --slurpfile outs $XRAY_OUTBOUNDS_PATH '.outbounds = $outs[0]' $XRAY_BASE_CONFIG_PATH > $XRAY_CONFIG_PATH
-
-PROXY_ADDRESSES=$(jq '.[0].settings.[].[0].address' $XRAY_OUTBOUNDS_PATH | cut -d "\"" -f 2)
-# PROXY_ADDRESSES=''
-
-if [[ $PROXY_ADDRESSES != null && ! $PROXY_ADDRESSES =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-
-    # is not ip
-    # is domain
-    PROXY_ADDRESSES=$(dig +short $PROXY_ADDRESSES | xargs)
+# Check for --raw mode (without Xray)
+RAW_MODE=false
+if [ "$1" == "--raw" ]; then
+    RAW_MODE=true
 fi
 
-# Unique domains
-DOMAINS=$(grep -v '^#' "$DOMAINS_PATH" | grep -v '^$' | sort -u)
+if [ "$RAW_MODE" == false ]; then
+    jq --slurpfile outs $XRAY_OUTBOUNDS_PATH '.outbounds = $outs[0]' $XRAY_BASE_CONFIG_PATH > $XRAY_CONFIG_PATH
 
-# Resolve domains in parallel
-DOMAINS_IPS=$(echo "$DOMAINS" | xargs -n1 -P25 dig +short +time=6 +tries=1 | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
+    PROXY_ADDRESSES=$(jq '.[0].settings.[].[0].address' $XRAY_OUTBOUNDS_PATH | cut -d "\"" -f 2)
+    # PROXY_ADDRESSES=''
 
-# Unique IPs
-IPS=$(grep -v '^#' "$IPS_PATH" | grep -v '^$' | sort -u)
+    if [[ $PROXY_ADDRESSES != null && ! $PROXY_ADDRESSES =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 
-# Add IPs to PROXY_ADDRESSES
-PROXY_ADDRESSES="$PROXY_ADDRESSES $DOMAINS_IPS $IPS"
+        # is not ip
+        # is domain
+        PROXY_ADDRESSES=$(dig +short $PROXY_ADDRESSES | xargs)
+    fi
 
-# Unique all addresses
-PROXY_ADDRESSES=$(echo "$PROXY_ADDRESSES" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+    # Unique domains
+    DOMAINS=$(grep -v '^#' "$DOMAINS_PATH" | grep -v '^$' | sort -u)
+
+    # Resolve domains in parallel
+    DOMAINS_IPS=$(echo "$DOMAINS" | xargs -n1 -P25 dig +short +time=6 +tries=1 | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
+
+    # Unique IPs
+    IPS=$(grep -v '^#' "$IPS_PATH" | grep -v '^$' | sort -u)
+
+    # Add IPs to PROXY_ADDRESSES
+    PROXY_ADDRESSES="$PROXY_ADDRESSES $DOMAINS_IPS $IPS"
+
+    # Unique all addresses
+    PROXY_ADDRESSES=$(echo "$PROXY_ADDRESSES" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+else
+    # In RAW mode, only route SERVER_ADDRESS
+    PROXY_ADDRESSES="$SERVER_ADDRESS"
+fi
 
 # Network
 GATEWAY=$(route -n | grep 'UG[ \t]' | awk '{print $2}')
@@ -63,14 +74,15 @@ TUN_ADDRESS="10.10.10.10"
 # Route
 TUN_ROUTE="default via $TUN_ADDRESS dev $TUN_NAME metric 1"
 
-# ProxyChains proxy
-PROXYCHAINS_PROXY_HOST=$(echo "$PROXYCHAINS_PROXY" | cut -d':' -f1)
-PROXYCHAINS_PROXY_PORT=$(echo "$PROXYCHAINS_PROXY" | cut -d':' -f2)
+# ProxyChains config (only for non-raw mode)
+if [ "$RAW_MODE" == false ]; then
+    PROXYCHAINS_PROXY_HOST=$(echo "$PROXYCHAINS_PROXY" | cut -d':' -f1)
+    PROXYCHAINS_PROXY_PORT=$(echo "$PROXYCHAINS_PROXY" | cut -d':' -f2)
 
-# Create temporary proxychains config
-PROXYCHAINS_CONFIG="$SCRIPT_DIR/proxychains.conf"
+    # Create temporary proxychains config
+    PROXYCHAINS_CONFIG="$SCRIPT_DIR/proxychains.conf"
 
-cat > "$PROXYCHAINS_CONFIG" << EOF
+    cat > "$PROXYCHAINS_CONFIG" << EOF
 strict_chain
 proxy_dns
 remote_dns_subnet 224
@@ -80,6 +92,7 @@ tcp_connect_time_out 8000
 [ProxyList]
 socks5 $PROXYCHAINS_PROXY_HOST $PROXYCHAINS_PROXY_PORT
 EOF
+fi
 
 executeXray() {
 
@@ -93,9 +106,15 @@ executeXray() {
 
 executeSSH() {
 
-    {
-        proxychains -f "$PROXYCHAINS_CONFIG" sshpass -p "$SSH_PASSWORD" ssh $SSH_USERNAME@$SERVER_ADDRESS -p $SSH_PORT -ND $SOCKS_ADDRESS
-    } &>/dev/null &
+    if [ "$RAW_MODE" == false ]; then
+        {
+            proxychains -f "$PROXYCHAINS_CONFIG" sshpass -p "$SSH_PASSWORD" ssh $SSH_USERNAME@$SERVER_ADDRESS -p $SSH_PORT -ND $SOCKS_ADDRESS
+        } &>/dev/null &
+    else
+        {
+            sshpass -p "$SSH_PASSWORD" ssh $SSH_USERNAME@$SERVER_ADDRESS -p $SSH_PORT -ND $SOCKS_ADDRESS
+        } &>/dev/null &
+    fi
     SSH_PID=$!
 
     echo "SSH Executed ..."
@@ -194,7 +213,12 @@ start() {
 
     echo "Starting ..."
 
-    executeXray
+    if [ "$RAW_MODE" == false ]; then
+        echo "Xray mode (with Xray)..."
+        executeXray
+    else
+        echo "RAW mode (without Xray)..."
+    fi
 
     executeSSH
 
@@ -243,7 +267,9 @@ stop() {
 
     stopSSH
 
-    stopXray
+    if [ "$RAW_MODE" == false ]; then
+        stopXray
+    fi
 
     # Clean up temporary proxychains config
     rm -f "$PROXYCHAINS_CONFIG"
