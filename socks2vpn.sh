@@ -16,10 +16,11 @@
 
 # Usage:
 # sudo bash socks2vpn.sh
-# sudo bash socks2vpn.sh --raw
 # Or with alias:
-# vpn
-# vpn --raw
+# vpn                 - with Xray, with proxychains
+# vpn --raw           - without Xray, without proxychains (direct SSH)
+# vpn --proxy         - without Xray, with proxychains (default proxy)
+# vpn --proxy IP:PORT - without Xray, with proxychains (custom proxy)
 
 # script dir for open script in other directory
 SCRIPT_DIR=$(dirname "$(realpath "$0")")
@@ -32,24 +33,24 @@ else
     exit 1
 fi
 
-# Check for --raw mode (without Xray)
+# Mode detection
 RAW_MODE=false
+PROXY_MODE=false
+
 if [ "$1" == "--raw" ]; then
     RAW_MODE=true
+elif [ "$1" == "--proxy" ]; then
+    PROXY_MODE=true
+    if [ -n "$2" ]; then
+        PROXYCHAINS_PROXY="$2"
+    fi
 fi
 
-if [ "$RAW_MODE" == false ]; then
-    jq --slurpfile outs $XRAY_OUTBOUNDS_PATH '.outbounds = $outs[0]' $XRAY_BASE_CONFIG_PATH > $XRAY_CONFIG_PATH
-
-    PROXY_ADDRESSES=$(jq '.[0].settings.[].[0].address' $XRAY_OUTBOUNDS_PATH | cut -d "\"" -f 2)
-    # PROXY_ADDRESSES=''
-
-    if [[ $PROXY_ADDRESSES != null && ! $PROXY_ADDRESSES =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-
-        # is not ip
-        # is domain
-        PROXY_ADDRESSES=$(dig +short $PROXY_ADDRESSES | xargs)
-    fi
+if [ "$RAW_MODE" == true ]; then
+    # RAW mode: only route SERVER_ADDRESS
+    PROXY_ADDRESSES="$SERVER_ADDRESS"
+else
+    # Normal mode or PROXY mode: resolve domains and IPs
 
     # Unique domains
     DOMAINS=$(grep -v '^#' "$DOMAINS_PATH" | grep -v '^$' | sort -u)
@@ -61,13 +62,24 @@ if [ "$RAW_MODE" == false ]; then
     IPS=$(grep -v '^#' "$IPS_PATH" | grep -v '^$' | sort -u)
 
     # Add IPs to PROXY_ADDRESSES
-    PROXY_ADDRESSES="$PROXY_ADDRESSES $DOMAINS_IPS $IPS"
+    PROXY_ADDRESSES="$DOMAINS_IPS $IPS"
+
+    # Normal mode: also add Xray address
+    if [ "$PROXY_MODE" == false ]; then
+        jq --slurpfile outs $XRAY_OUTBOUNDS_PATH '.outbounds = $outs[0]' $XRAY_BASE_CONFIG_PATH > $XRAY_CONFIG_PATH
+
+        XRAY_ADDRESS=$(jq '.[0].settings.[].[0].address' $XRAY_OUTBOUNDS_PATH | cut -d "\"" -f 2)
+
+        if [[ $XRAY_ADDRESS != null && ! $XRAY_ADDRESS =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            # is domain, resolve it
+            XRAY_ADDRESS=$(dig +short $XRAY_ADDRESS | xargs)
+        fi
+
+        PROXY_ADDRESSES="$XRAY_ADDRESS $PROXY_ADDRESSES"
+    fi
 
     # Unique all addresses
     PROXY_ADDRESSES=$(echo "$PROXY_ADDRESSES" | tr ' ' '\n' | sort -u | tr '\n' ' ')
-else
-    # In RAW mode, only route SERVER_ADDRESS
-    PROXY_ADDRESSES="$SERVER_ADDRESS"
 fi
 
 # Network
@@ -81,7 +93,7 @@ TUN_ADDRESS="10.10.10.10"
 # Route
 TUN_ROUTE="default via $TUN_ADDRESS dev $TUN_NAME metric 1"
 
-# ProxyChains config (only for non-raw mode)
+# ProxyChains config (for normal mode and proxy mode)
 if [ "$RAW_MODE" == false ]; then
     PROXYCHAINS_PROXY_HOST=$(echo "$PROXYCHAINS_PROXY" | cut -d':' -f1)
     PROXYCHAINS_PROXY_PORT=$(echo "$PROXYCHAINS_PROXY" | cut -d':' -f2)
@@ -218,11 +230,13 @@ start() {
 
     echo "Starting ..."
 
-    if [ "$RAW_MODE" == false ]; then
-        echo "Xray mode (with Xray)..."
-        executeXray
+    if [ "$RAW_MODE" == true ]; then
+        echo "RAW mode (without Xray, direct SSH)..."
+    elif [ "$PROXY_MODE" == true ]; then
+        echo "PROXY mode (without Xray, with proxychains: $PROXYCHAINS_PROXY_HOST:$PROXYCHAINS_PROXY_PORT)..."
     else
-        echo "RAW mode (without Xray)..."
+        echo "Xray mode (with Xray and proxychains)..."
+        executeXray
     fi
 
     executeSSH
@@ -272,12 +286,14 @@ stop() {
 
     stopSSH
 
-    if [ "$RAW_MODE" == false ]; then
+    if [ "$RAW_MODE" == false ] && [ "$PROXY_MODE" == false ]; then
         stopXray
     fi
 
     # Clean up temporary proxychains config
-    rm -f "$PROXYCHAINS_CONFIG"
+    if [ "$RAW_MODE" == false ]; then
+        rm -f "$PROXYCHAINS_CONFIG"
+    fi
 
     echo "Success."
 
