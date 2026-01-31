@@ -2,11 +2,14 @@
 
 # https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/dns-over-https-client/
 
+# For add exception:
+# sudo ip route add 172.217.18.14 via 192.168.0.254 dev enp5s0
+
 # SSH
 SERVER_ADDRESS=""
 SSH_PORT=
 SSH_USERNAME=""
-SSH_PUB_KEY_PATH=""
+SSH_PASSWORD=""
 UDPGW_PORT=
 
 GATEWAY=$(route -n | grep 'UG[ \t]' | awk '{print $2}')
@@ -15,17 +18,24 @@ TUN_NAME="tun0"
 TUN_ADDRESS="10.10.10.10"
 SOCKS_ADDRESS="0.0.0.0:1090"
 
-RESOLV_CONF_PATH="/etc/resolv.conf"
+# RESOLV_CONF_PATH="/etc/resolv.conf"
 
-if ! grep -q "nameserver 127.0.0.1" $RESOLV_CONF_PATH; then
-    sed -i "s/nameserver/# nameserver/g" $RESOLV_CONF_PATH
-    sed -i "s/options/# options/g" $RESOLV_CONF_PATH
-    sed -i "s/search/# search/g" $RESOLV_CONF_PATH
-    # echo -e "\nnameserver 127.0.0.1" >> $RESOLV_CONF_PATH
-    echo -e "\nnameserver 1.1.1.1" >> $RESOLV_CONF_PATH
+# if ! grep -q "nameserver 127.0.0.1" $RESOLV_CONF_PATH; then
+#     sed -i "s/nameserver/# nameserver/g" $RESOLV_CONF_PATH
+#     sed -i "s/options/# options/g" $RESOLV_CONF_PATH
+#     sed -i "s/search/# search/g" $RESOLV_CONF_PATH
+#     # echo -e "\nnameserver 127.0.0.1" >> $RESOLV_CONF_PATH
+#     echo -e "\nnameserver 1.1.1.1" >> $RESOLV_CONF_PATH
+# fi
+
+if ! command -v sshpass &> /dev/null; then
+    echo "sshpass is not installed. Installing..."
+    sudo apt-get update
+    sudo apt-get install -y sshpass
+    echo "sshpass installed successfully!"
 fi
 
-ssh -i $SSH_PUB_KEY_PATH $SSH_USERNAME@$SERVER_ADDRESS -p $SSH_PORT -ND $SOCKS_ADDRESS & SSH_PID=$!
+sshpass -p "$SSH_PASSWORD" ssh $SSH_USERNAME@$SERVER_ADDRESS -p $SSH_PORT -ND $SOCKS_ADDRESS & SSH_PID=$!
 
 sleep 2
 
@@ -72,12 +82,12 @@ stop() {
     kill -9 "$SSH_PID"
     delRoute "$TUN_ROUTE"
     delRoute "$SERVER_ROUTE"
-    # sed -i "s/nameserver 127.0.0.1//g" $RESOLV_CONF_PATH
-    sed -i "s/nameserver 1.1.1.1//g" $RESOLV_CONF_PATH
-    sed -i '/^$/d' $RESOLV_CONF_PATH
-    sed -i "s/# nameserver/\nnameserver/g" $RESOLV_CONF_PATH
-    sed -i "s/# options/options/g" $RESOLV_CONF_PATH
-    sed -i "s/# search/search/g" $RESOLV_CONF_PATH
+    # # sed -i "s/nameserver 127.0.0.1//g" $RESOLV_CONF_PATH
+    # sed -i "s/nameserver 1.1.1.1//g" $RESOLV_CONF_PATH
+    # sed -i '/^$/d' $RESOLV_CONF_PATH
+    # sed -i "s/# nameserver/\nnameserver/g" $RESOLV_CONF_PATH
+    # sed -i "s/# options/options/g" $RESOLV_CONF_PATH
+    # sed -i "s/# search/search/g" $RESOLV_CONF_PATH
 }
 
 if [ "$EUID" -ne 0 ]
