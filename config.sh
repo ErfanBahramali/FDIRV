@@ -17,10 +17,10 @@ PROXYCHAINS_PROXY="127.0.0.1:10808"
 
 # Paths
 # Uses $SCRIPT_DIR from parent script (set before sourcing this file)
-# You can also use absolute paths like: XRAY_PATH="/home/user/FDIRV/Xray"
+# You can also use absolute paths like: XRAY_PATH="/home/user/FDIRV/xray"
 
 # Xray
-XRAY_PATH="$SCRIPT_DIR/Xray"
+XRAY_PATH="$SCRIPT_DIR/xray"
 XRAY_BASE_CONFIG_PATH="$XRAY_PATH/config.base.json"
 XRAY_OUTBOUNDS_PATH="$XRAY_PATH/outbounds.json"
 XRAY_CONFIG_PATH="$XRAY_PATH/config.json"
