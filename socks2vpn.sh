@@ -1,28 +1,29 @@
 #!/bin/bash
 
 # Add executable permission to the script:
-# chmod +x ~/Desktop/FDIRV/socks2vpn.sh
+# chmod +x /home/user/Desktop/FDIRV/socks2vpn.sh
 
 # Add alias in:
 # ~/.zshrc
 # # FDIRV
-# alias vpn="sudo ~/Desktop/FDIRV/socks2vpn.sh"
+# alias vpn="sudo /home/user/Desktop/FDIRV/socks2vpn.sh"
 
 # Password-free and safe this file in:
 # /etc/sudoers
 # sudo visudo
 # #FDIRV
-# user ALL=(ALL) NOPASSWD: ~/Desktop/FDIRV/socks2vpn.sh
+# user ALL=(ALL) NOPASSWD: /home/user/Desktop/FDIRV/socks2vpn.sh
 
 # script dir for open script in other directory
 SCRIPT_DIR=$(dirname "$(realpath "$0")")
 
-XRAY_PATH="$SCRIPT_DIR/Xray"
-XRAY_BASE_CONFIG_PATH="$XRAY_PATH/config.base.json"
-XRAY_OUTBOUNDS_PATH="$XRAY_PATH/outbounds.json"
-XRAY_CONFIG_PATH="$XRAY_PATH/config.json"
-DOMAINS_PATH="$SCRIPT_DIR/domains.txt"
-IPS_PATH="$SCRIPT_DIR/ips.txt"
+# Load credentials
+if [ -f "$SCRIPT_DIR/config.sh" ]; then
+    source "$SCRIPT_DIR/config.sh"
+else
+    echo "Error: config.sh not found!"
+    exit 1
+fi
 
 jq --slurpfile outs $XRAY_OUTBOUNDS_PATH '.outbounds = $outs[0]' $XRAY_BASE_CONFIG_PATH > $XRAY_CONFIG_PATH
 
@@ -51,19 +52,6 @@ PROXY_ADDRESSES="$PROXY_ADDRESSES $DOMAINS_IPS $IPS"
 # Unique all addresses
 PROXY_ADDRESSES=$(echo "$PROXY_ADDRESSES" | tr ' ' '\n' | sort -u | tr '\n' ' ')
 
-# SSH
-SERVER_ADDRESS=""
-SSH_PORT=
-SSH_USERNAME=""
-SSH_PASSWORD=""
-UDPGW_PORT=
-SOCKS_ADDRESS="127.0.0.1:1090"
-
-DNS_PRIMARY="1.1.1.1"
-DNS_SECONDARY="1.0.0.1"
-DNS_PRIMARY_V6="2606:4700:4700::1111"
-DNS_SECONDARY_V6="2606:4700:4700::1001"
-
 # Network
 GATEWAY=$(route -n | grep 'UG[ \t]' | awk '{print $2}')
 INTERFACE=$(ip addr show | awk '/inet.*brd/{print $NF; exit}')
@@ -76,13 +64,13 @@ TUN_ADDRESS="10.10.10.10"
 TUN_ROUTE="default via $TUN_ADDRESS dev $TUN_NAME metric 1"
 
 # ProxyChains proxy
-PROXYCHAINS_PROXY_HOST="127.0.0.1"
-PROXYCHAINS_PROXY_PORT="10808"
+PROXYCHAINS_PROXY_HOST=$(echo "$PROXYCHAINS_PROXY" | cut -d':' -f1)
+PROXYCHAINS_PROXY_PORT=$(echo "$PROXYCHAINS_PROXY" | cut -d':' -f2)
 
 # Create temporary proxychains config
 PROXYCHAINS_CONFIG="$SCRIPT_DIR/proxychains.conf"
 
-cat > "$PROXYCHAINS_CONF" << EOF
+cat > "$PROXYCHAINS_CONFIG" << EOF
 strict_chain
 proxy_dns
 remote_dns_subnet 224
@@ -106,7 +94,7 @@ executeXray() {
 executeSSH() {
 
     {
-        proxychains -f "$PROXYCHAINS_CONF" sshpass -p "$SSH_PASSWORD" ssh $SSH_USERNAME@$SERVER_ADDRESS -p $SSH_PORT -ND $SOCKS_ADDRESS
+        proxychains -f "$PROXYCHAINS_CONFIG" sshpass -p "$SSH_PASSWORD" ssh $SSH_USERNAME@$SERVER_ADDRESS -p $SSH_PORT -ND $SOCKS_ADDRESS
     } &>/dev/null &
     SSH_PID=$!
 
