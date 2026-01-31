@@ -7,6 +7,13 @@ if ! command -v route &>/dev/null; then
     echo "net-tools installed successfully!"
 fi
 
+if ! command -v jq &>/dev/null; then
+    echo "jq is not installed. Installing..."
+    sudo apt-get update
+    sudo apt-get install -y jq
+    echo "jq installed successfully!"
+fi
+
 if ! command -v sshpass &>/dev/null; then
     echo "sshpass is not installed. Installing..."
     sudo apt-get update
