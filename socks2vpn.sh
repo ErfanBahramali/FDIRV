@@ -14,6 +14,13 @@
 # #FDIRV
 # user ALL=(ALL) NOPASSWD: /home/user/Desktop/FDIRV/socks2vpn.sh
 
+# Usage:
+# sudo bash socks2vpn.sh
+# sudo bash socks2vpn.sh --raw
+# Or with alias:
+# vpn
+# vpn --raw
+
 # script dir for open script in other directory
 SCRIPT_DIR=$(dirname "$(realpath "$0")")
 
@@ -82,16 +89,14 @@ if [ "$RAW_MODE" == false ]; then
     # Create temporary proxychains config
     PROXYCHAINS_CONFIG="$SCRIPT_DIR/proxychains.conf"
 
-    cat > "$PROXYCHAINS_CONFIG" << EOF
-strict_chain
+    echo -e "strict_chain
+quiet_mode
 proxy_dns
-remote_dns_subnet 224
 tcp_read_time_out 15000
 tcp_connect_time_out 8000
 
 [ProxyList]
-socks5 $PROXYCHAINS_PROXY_HOST $PROXYCHAINS_PROXY_PORT
-EOF
+socks5 $PROXYCHAINS_PROXY_HOST $PROXYCHAINS_PROXY_PORT" > "$PROXYCHAINS_CONFIG"
 fi
 
 executeXray() {
