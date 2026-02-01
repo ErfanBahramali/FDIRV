@@ -46,41 +46,51 @@ elif [ "$1" == "--proxy" ]; then
     fi
 fi
 
+PROXYCHAINS_PROXY_HOST=$(echo "$PROXYCHAINS_PROXY" | cut -d':' -f1)
+PROXYCHAINS_PROXY_PORT=$(echo "$PROXYCHAINS_PROXY" | cut -d':' -f2)
+
+# Resolve domains and IPs (common for all modes)
+# Unique domains
+DOMAINS=$(grep -v '^#' "$DOMAINS_PATH" | grep -v '^$' | sort -u)
+
+# Resolve domains in parallel
+DOMAINS_IPS=$(echo "$DOMAINS" | xargs -n1 -P25 dig +short +time=6 +tries=1 | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
+
+# Unique IPs
+IPS=$(grep -v '^#' "$IPS_PATH" | grep -v '^$' | sort -u)
+
+PROXY_ADDRESSES="$DOMAINS_IPS $IPS"
+
+# Build PROXY_ADDRESSES based on mode
 if [ "$RAW_MODE" == true ]; then
-    # RAW mode: only route SERVER_ADDRESS
-    PROXY_ADDRESSES="$SERVER_ADDRESS"
-else
-    # Normal mode or PROXY mode: resolve domains and IPs
+    # RAW mode: route SERVER_ADDRESS + domains + IPs
+    PROXY_ADDRESSES="$SERVER_ADDRESS $PROXY_ADDRESSES"
+elif [ "$PROXY_MODE" == true ]; then
+    # PROXY mode: add proxy IP + domains + IPs
+    PROXY_IP=$PROXYCHAINS_PROXY_HOST
 
-    # Unique domains
-    DOMAINS=$(grep -v '^#' "$DOMAINS_PATH" | grep -v '^$' | sort -u)
-
-    # Resolve domains in parallel
-    DOMAINS_IPS=$(echo "$DOMAINS" | xargs -n1 -P25 dig +short +time=6 +tries=1 | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
-
-    # Unique IPs
-    IPS=$(grep -v '^#' "$IPS_PATH" | grep -v '^$' | sort -u)
-
-    # Add IPs to PROXY_ADDRESSES
-    PROXY_ADDRESSES="$DOMAINS_IPS $IPS"
-
-    # Normal mode: also add Xray address
-    if [ "$PROXY_MODE" == false ]; then
-        jq --slurpfile outs $XRAY_OUTBOUNDS_PATH '.outbounds = $outs[0]' $XRAY_BASE_CONFIG_PATH > $XRAY_CONFIG_PATH
-
-        XRAY_ADDRESS=$(jq '.[0].settings.[].[0].address' $XRAY_OUTBOUNDS_PATH | cut -d "\"" -f 2)
-
-        if [[ $XRAY_ADDRESS != null && ! $XRAY_ADDRESS =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            # is domain, resolve it
-            XRAY_ADDRESS=$(dig +short $XRAY_ADDRESS | xargs)
-        fi
-
-        PROXY_ADDRESSES="$XRAY_ADDRESS $PROXY_ADDRESSES"
+    # Resolve proxy IP if it's a domain
+    if [[ ! $PROXY_IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        PROXY_IP=$(dig +short $PROXY_IP | xargs)
     fi
 
-    # Unique all addresses
-    PROXY_ADDRESSES=$(echo "$PROXY_ADDRESSES" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+    PROXY_ADDRESSES="$PROXY_IP $PROXY_ADDRESSES"
+else
+    # Normal mode (Xray): add Xray address + domains + IPs
+    jq --slurpfile outs $XRAY_OUTBOUNDS_PATH '.outbounds = $outs[0]' $XRAY_BASE_CONFIG_PATH > $XRAY_CONFIG_PATH
+
+    XRAY_ADDRESS=$(jq '.[0].settings.[].[0].address' $XRAY_OUTBOUNDS_PATH | cut -d "\"" -f 2)
+
+    if [[ $XRAY_ADDRESS != null && ! $XRAY_ADDRESS =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        # is domain, resolve it
+        XRAY_ADDRESS=$(dig +short $XRAY_ADDRESS | xargs)
+    fi
+
+    PROXY_ADDRESSES="$XRAY_ADDRESS $PROXY_ADDRESSES"
 fi
+
+# Unique all addresses
+PROXY_ADDRESSES=$(echo "$PROXY_ADDRESSES" | tr ' ' '\n' | sort -u | tr '\n' ' ')
 
 # Network
 GATEWAY=$(route -n | grep 'UG[ \t]' | awk '{print $2}')
@@ -95,9 +105,6 @@ TUN_ROUTE="default via $TUN_ADDRESS dev $TUN_NAME metric 1"
 
 # ProxyChains config (for normal mode and proxy mode)
 if [ "$RAW_MODE" == false ]; then
-    PROXYCHAINS_PROXY_HOST=$(echo "$PROXYCHAINS_PROXY" | cut -d':' -f1)
-    PROXYCHAINS_PROXY_PORT=$(echo "$PROXYCHAINS_PROXY" | cut -d':' -f2)
-
     # Create temporary proxychains config
     PROXYCHAINS_CONFIG="$SCRIPT_DIR/proxychains.conf"
 
