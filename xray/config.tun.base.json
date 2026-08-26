@@ -1,0 +1,171 @@
+{
+    "log": {
+        "access": "access.log",
+        "error": "error.log",
+        "loglevel": "debug",
+        "dnsLog": true
+    },
+    "dns": {
+        "hosts": {
+            "dns.google": [
+                "8.8.8.8",
+                "8.8.4.4",
+                "2001:4860:4860::8888",
+                "2001:4860:4860::8844"
+            ],
+            "one.one.one.one": [
+                "1.1.1.1",
+                "1.0.0.1",
+                "2606:4700:4700::1111",
+                "2606:4700:4700::1001"
+            ],
+            "1dot1dot1dot1.cloudflare-dns.com": [
+                "1.1.1.1",
+                "1.0.0.1",
+                "2606:4700:4700::1111",
+                "2606:4700:4700::1001"
+            ],
+            "cloudflare-dns.com": [
+                "104.16.249.249",
+                "104.16.248.249",
+                "2606:4700::6810:f8f9",
+                "2606:4700::6810:f9f9"
+            ],
+            "dns.cloudflare.com": [
+                "104.16.132.229",
+                "104.16.133.229",
+                "2606:4700::6810:84e5",
+                "2606:4700::6810:85e5"
+            ],
+            "engage.cloudflareclient.com": [
+                "162.159.192.1",
+                "2606:4700:d0::a29f:c001"
+            ]
+        },
+        "servers": [
+            "https://cloudflare-dns.com/dns-query",
+            "https://8.8.8.8/dns-query",
+            "https://8.8.4.4/dns-query",
+            "8.8.8.8",
+            "8.8.4.4",
+            "2001:4860:4860::8888",
+            "2001:4860:4860::8844",
+            "9.9.9.9",
+            "149.112.112.112",
+            "2620:fe::fe",
+            "2620:fe::9",
+            {
+                "address": "1.1.1.1",
+                "domains": [
+                    "domain:googleapis.cn",
+                    "domain:gstatic.com"
+                ]
+            },
+            {
+                "address": "https://cloudflare-dns.com/dns-query",
+                "domains": [
+                    "geosite:google"
+                ],
+                "skipFallback": true
+            }
+        ]
+    },
+    "inbounds": [
+        {
+            "tag": "tun",
+            "protocol": "tun",
+            "settings": {
+                "name": "xray0",
+                "mtu": 1500
+            },
+            "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                    "http",
+                    "tls",
+                    "quic"
+                ]
+            }
+        }
+    ],
+    "outbounds": [
+        {
+            "tag": "ssh",
+            "protocol": "socks",
+            "settings": {
+                "servers": [
+                    {
+                        "address": "127.0.0.1",
+                        "port": 1090
+                    }
+                ]
+            }
+        },
+        {
+            "tag": "direct",
+            "protocol": "freedom",
+            "streamSettings": {
+                "sockopt": {
+                    "interface": "enp5s0"
+                }
+            }
+        },
+        {
+            "tag": "block",
+            "protocol": "blackhole"
+        },
+        {
+            "protocol": "dns",
+            "proxySettings": {
+                "tag": "ssh"
+            },
+            "tag": "dns-out"
+        }
+    ],
+    "routing": {
+        "domainStrategy": "IPIfNonMatch",
+        "rules": [
+            {
+                "type": "field",
+                "outboundTag": "direct",
+                "ip": [
+                    "geoip:private"
+                ]
+            },
+            {
+                "type": "field",
+                "outboundTag": "direct",
+                "domain": [
+                    "geosite:private"
+                ]
+            },
+            {
+                "type": "field",
+                "outboundTag": "direct",
+                "ip": [
+                    "geoip:ir"
+                ]
+            },
+            {
+                "type": "field",
+                "outboundTag": "direct",
+                "domain": [
+                    "geosite:category-ir"
+                ]
+            },
+            {
+                "type": "field",
+                "outboundTag": "ssh",
+                "port": "0-65535"
+            },
+            {
+                "network": "udp",
+                "port": 53,
+                "inboundTag": [
+                    "transparent"
+                ],
+                "outboundTag": "dns-out"
+            }
+        ]
+    }
+}

@@ -1,3 +1,7 @@
-domains.txt
-ips.txt
+config.sh
 proxychains.conf
+id_rsa
+id_rsa.pub
+config.socks.json
+config.socks.outbounds.json
+config.tun.json

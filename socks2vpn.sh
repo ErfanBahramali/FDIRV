@@ -77,9 +77,9 @@ elif [ "$PROXY_MODE" == true ]; then
     PROXY_ADDRESSES="$PROXY_IP $PROXY_ADDRESSES"
 else
     # Normal mode (Xray): add Xray address + domains + IPs
-    jq --slurpfile outs $XRAY_OUTBOUNDS_PATH '.outbounds = $outs[0]' $XRAY_BASE_CONFIG_PATH > $XRAY_CONFIG_PATH
+    jq --slurpfile outs "$XRAY_SOCKS_OUTBOUNDS_PATH" '.outbounds = $outs[0]' "$XRAY_SOCKS_BASE_CONFIG_PATH" > "$XRAY_SOCKS_CONFIG_PATH"
 
-    XRAY_ADDRESS=$(jq '.[0].settings.[].[0].address' $XRAY_OUTBOUNDS_PATH | cut -d "\"" -f 2)
+    XRAY_ADDRESS=$(jq '.[0].settings.[].[0].address' "$XRAY_SOCKS_OUTBOUNDS_PATH" | cut -d "\"" -f 2)
 
     if [[ $XRAY_ADDRESS != null && ! $XRAY_ADDRESS =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         # is domain, resolve it
@@ -120,7 +120,7 @@ fi
 
 executeXray() {
 
-    $XRAY_PATH/xray run -c $XRAY_CONFIG_PATH >/dev/null &
+    $XRAY_PATH/xray run -c "$XRAY_SOCKS_CONFIG_PATH" >/dev/null &
     XRAY_PID=$!
 
     echo "Xray Executed ..."

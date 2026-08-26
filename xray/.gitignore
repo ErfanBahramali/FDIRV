@@ -1,2 +1,4 @@
 config.json
 outbounds.json
+access.log
+error.log

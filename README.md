@@ -1,6 +1,6 @@
 # 🌐 FDIRV
 
-A tool for tunneling all system traffic and connecting to a remote server via SSH.
+A tool for tunneling all system traffic and connecting to a remote server via SSH, using Xray's native TUN protocol.
 
 ---
 
@@ -22,7 +22,7 @@ A tool for tunneling all system traffic and connecting to a remote server via SS
 
 ## 🎯 Introduction
 
-This tool is designed for **tunneling all system traffic** and connecting to a destination server.
+This tool is designed for **tunneling all system traffic** and connecting to a destination server using **Xray's native TUN protocol**.
 
 All system requests are routed through the final server (which you connect to via SSH), and your IP on the internet will be the server's IP.
 
@@ -43,6 +43,16 @@ Why is system-wide tunneling better than setting proxies on individual applicati
 | Risk of real IP leakage | Real IP never leaks |
 | Proxy is detectable | Traffic appears completely normal |
 | Each app needs separate configuration | Configure once, affects all apps |
+
+**Technical Features:**
+- ✅ Xray native TUN protocol (no external tools needed)
+- ✅ Built-in DNS with DoH (no DNS leaks)
+- ✅ Smart routing with geoip/geosite (Iranian sites go direct)
+- ✅ Better performance (native implementation)
+- ✅ Clean architecture
+
+**⚠️ Requirements:**
+- Xray v1.26.1.23 or higher (TUN support added in this version)
 
 ## 🔌 Connection Modes
 
@@ -95,23 +105,15 @@ vpn --proxy 1.2.3.4:1080
 
 ## 🔓 Excluding Sites
 
-When connected to the destination server with all traffic tunneled, you might want to access some sites with your real IP (like local sites).
+When connected to the destination server with all traffic tunneled, you might want to access some sites with your real IP (like Iranian sites).
 
-To do this, add them to the following files:
+The tool automatically routes Iranian sites directly using:
+- `geoip:ir` - Iranian IP ranges
+- `geosite:category-ir` - Iranian domains
+- `geoip:private` - Local network IPs
+- `geosite:private` - Local domains
 
-**`domains.txt`** - Domains to access directly:
-```
-example1.com
-example2.com
-```
-
-**`ips.txt`** - IPs to access directly:
-```
-1.2.3.4
-5.6.7.0/24
-```
-
-These sites and IPs will **not** go through the tunnel and will be accessed directly.
+All other traffic goes through the tunnel.
 
 ## 💻 Supported Operating Systems
 
@@ -150,26 +152,22 @@ SERVER_ADDRESS="1.2.3.4"
 SSH_PORT=22
 SSH_USERNAME="user"
 SSH_PASSWORD="pass"
-UDPGW_PORT=8301
 SOCKS_ADDRESS="127.0.0.1:1090"
-
-# DNS
-DNS_PRIMARY="1.1.1.1"
-DNS_SECONDARY="1.0.0.1"
-DNS_PRIMARY_V6="2606:4700:4700::1111"
-DNS_SECONDARY_V6="2606:4700:4700::1001"
 
 # Default Proxy
 PROXYCHAINS_PROXY="127.0.0.1:10808"
 
 # Paths
 XRAY_PATH="$SCRIPT_DIR/xray"
-XRAY_BASE_CONFIG_PATH="$XRAY_PATH/config.base.json"
-XRAY_OUTBOUNDS_PATH="$XRAY_PATH/outbounds.json"
-XRAY_CONFIG_PATH="$XRAY_PATH/config.json"
 
-DOMAINS_PATH="$SCRIPT_DIR/domains.txt"
-IPS_PATH="$SCRIPT_DIR/ips.txt"
+# Xray SOCKS config (for default mode)
+XRAY_SOCKS_BASE_CONFIG_PATH="$XRAY_PATH/config.socks.base.json"
+XRAY_SOCKS_OUTBOUNDS_PATH="$XRAY_PATH/config.socks.outbounds.json"
+XRAY_SOCKS_CONFIG_PATH="$XRAY_PATH/config.socks.json"
+
+# Xray TUN config (for all modes)
+XRAY_TUN_BASE_CONFIG_PATH="$XRAY_PATH/config.tun.base.json"
+XRAY_TUN_CONFIG_PATH="$XRAY_PATH/config.tun.json"
 ```
 
 ### Variable Descriptions
@@ -180,33 +178,46 @@ IPS_PATH="$SCRIPT_DIR/ips.txt"
 | `SSH_PORT` | SSH port (usually 22) |
 | `SSH_USERNAME` | SSH username |
 | `SSH_PASSWORD` | SSH password |
-| `UDPGW_PORT` | UDP Gateway port for UDP support |
 | `SOCKS_ADDRESS` | SOCKS5 address that SSH listens on |
-| `DNS_PRIMARY` | Primary DNS IPv4 |
-| `DNS_SECONDARY` | Secondary DNS IPv4 |
-| `DNS_PRIMARY_V6` | Primary DNS IPv6 |
-| `DNS_SECONDARY_V6` | Secondary DNS IPv6 |
 | `PROXYCHAINS_PROXY` | Default SOCKS5 proxy address for proxychains |
 | `XRAY_PATH` | Xray folder path |
-| `DOMAINS_PATH` | Domains list file path |
-| `IPS_PATH` | IPs list file path |
+| `XRAY_SOCKS_BASE_CONFIG_PATH` | Template for SOCKS config (base) |
+| `XRAY_SOCKS_OUTBOUNDS_PATH` | Outbounds file to merge with SOCKS base |
+| `XRAY_SOCKS_CONFIG_PATH` | Generated SOCKS config (runtime) |
+| `XRAY_TUN_BASE_CONFIG_PATH` | Template for TUN config (base) |
+| `XRAY_TUN_CONFIG_PATH` | Generated TUN config (runtime) |
 
 > **Note:** You can use `$SCRIPT_DIR` variable instead of absolute paths. This variable is automatically set by the main script and points to the project folder.
 
+> **📝 Config File Architecture:**
+> - **`.base.json` files** are templates that never change (e.g., `config.socks.base.json`, `config.tun.base.json`)
+> - **Generated configs** are created at runtime by modifying templates (e.g., `config.socks.json`, `config.tun.json`)
+> - This approach is cleaner and safer than backup/restore methods - each run starts from pristine templates
+> - **SOCKS config**: base + outbounds merged via jq → final config
+> - **TUN config**: base + interface binding + routing rules → final config
+
 ## 🚀 Usage
+
+**First, make the script executable:**
+
+```bash
+chmod +x /path/to/xray2vpn.sh
+```
+
+**Then run:**
 
 ```bash
 # Default mode - SSH through Xray
-sudo ./socks2vpn.sh
+sudo ./xray2vpn.sh
 
 # Direct mode - SSH without intermediary
-sudo ./socks2vpn.sh --raw
+sudo ./xray2vpn.sh --raw
 
 # Proxy mode - SSH through SOCKS5 proxy
-sudo ./socks2vpn.sh --proxy
+sudo ./xray2vpn.sh --proxy
 
 # Proxy mode with custom address
-sudo ./socks2vpn.sh --proxy 192.168.1.100:10808
+sudo ./xray2vpn.sh --proxy 192.168.1.100:10808
 ```
 
 ## ⌨️ Setting up Alias
@@ -215,7 +226,7 @@ For easier access, you can define an alias:
 
 ```bash
 # Add to ~/.bashrc or ~/.zshrc:
-alias vpn="sudo /path/to/socks2vpn.sh"
+alias vpn="sudo /path/to/xray2vpn.sh"
 ```
 
 To run without entering sudo password:
@@ -223,7 +234,7 @@ To run without entering sudo password:
 ```bash
 sudo visudo
 # Add this line (replace 'user' with your username):
-user ALL=(ALL) NOPASSWD: /path/to/socks2vpn.sh
+user ALL=(ALL) NOPASSWD: /path/to/xray2vpn.sh
 ```
 
 Now you can use these commands:
@@ -236,13 +247,15 @@ vpn --proxy      # Proxy mode
 
 ## 🔗 Tools Used
 
-The following tools are included in the project. For updates and more information:
+This tool uses Xray's native TUN protocol for system-wide tunneling:
 
-- [tun2socks](https://github.com/xjasonlyu/tun2socks) - Convert TUN traffic to SOCKS5
-- [badvpn-tun2socks](https://github.com/ambrop72/badvpn) - Convert TUN traffic to SOCKS5 (with UDP support)
-- [dns-tcp-socks-proxy](https://github.com/jtripper/dns-tcp-socks-proxy) - DNS proxy through SOCKS
-- [proxychains](https://github.com/haad/proxychains) - Run programs through proxy
-- [Xray-core](https://github.com/XTLS/Xray-core) - Advanced protocols for bypassing filters
+- [Xray-core](https://github.com/XTLS/Xray-core) - Advanced protocols with native TUN support
+- [proxychains](https://github.com/haad/proxychains) - Route programs through proxy
+
+**Built-in Features:**
+- Xray TUN inbound (native virtual network interface)
+- Xray DNS (DoH support with split DNS)
+- Xray routing (geoip/geosite for smart routing)
 
 ## 📋 License
 
