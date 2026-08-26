@@ -1,0 +1,20 @@
+[Unit]
+Description=Xray TUN VPN (system-wide tunnel)
+After=network-online.target NetworkManager.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/path/to/FDIRV/xray
+# Prepare interface binding, clear logs, and set TUN routes before starting xray
+ExecStartPre=/path/to/FDIRV/setup-xray.sh
+ExecStart=/path/to/FDIRV/xray/xray run -c /path/to/FDIRV/xray/config.json
+# Re-apply routes after xray starts (in case TUN wasn't ready in ExecStartPre)
+ExecStartPost=/path/to/FDIRV/setup-xray.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

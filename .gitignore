@@ -1,7 +1,3 @@
-config.sh
-proxychains.conf
-id_rsa
-id_rsa.pub
-config.socks.json
-config.socks.outbounds.json
-config.tun.json
+config.json
+access.log
+error.log
