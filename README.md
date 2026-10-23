@@ -13,15 +13,18 @@ System-wide VPN tunneling using **Xray's native TUN protocol** — nothing else.
 
 - ✅ **Pure Xray** — no tun2socks, no SSH, no external tools
 - ✅ Native TUN inbound — all system traffic is tunneled
-- ✅ Built-in DNS with DoH (no DNS leaks)
+- ✅ **No DNS leaks** — every DNS query (port 53) is captured into `xray0` and resolved over DoH through the proxy
+- ✅ Works without touching `/etc/resolv.conf` — no systemd-resolved, no extra packages
+- ✅ Bypasses router/ISP DNS filtering (e.g. forced SafeSearch)
 - ✅ Smart routing: Iranian sites/IPs go direct (`geoip:ir`, `geosite:category-ir`)
-- ✅ Auto interface detection — binds to the active network interface automatically
+- ✅ Auto interface detection — binds to the active physical interface, never the TUN itself
 - ✅ Systemd service with auto-restart and persistent routes
 - ✅ Logs cleared on every start
 
 ## ⚠️ Requirements
 
 - Linux with systemd
+- Kernel 4.17+ and `iproute2` (for port-based `ip rule`, already present on modern distros)
 - Xray v1.26.1+ (TUN support)
 - `jq` (for interface binding in config)
 
@@ -29,13 +32,46 @@ System-wide VPN tunneling using **Xray's native TUN protocol** — nothing else.
 
 Everything lives in a single file: `xray/config.json`
 
-The only thing you normally never edit manually is the outbound `sockopt.interface` — the setup script keeps it in sync with your active network interface:
+### 1. Server IP in `dns.hosts` (required)
+
+Because all system DNS goes through Xray, Xray cannot resolve its own server's domain through itself — that would loop and drop the connection. Pin the server's IP:
+
+```json
+"dns": {
+  "hosts": {
+    "your-server-domain.net": ["SERVER_IP"]
+  }
+}
+```
+
+Keep the domain in `serverName` so TLS still works.
+
+### 2. DNS routing (order matters)
+
+```json
+"rules": [
+  { "type": "field", "inboundTag": ["dns-module"], "outboundTag": "proxy" },
+  { "type": "field", "network": "udp,tcp", "port": 53, "outboundTag": "dns-proxy" },
+  { "type": "field", "ip": ["geoip:private"], "outboundTag": "direct" },
+  ...
+]
+```
+
+- The `dns-module` rule must come **first**, so Xray's own DNS queries never loop back into `dns-proxy`.
+- The port 53 rule must come **before** `geoip:private`, otherwise queries to your router (e.g. `192.168.x.1`) go direct and leak.
+
+### 3. `sockopt.interface` (managed automatically)
+
+You normally never edit this — the setup script keeps it in sync with your active network interface:
 
 ```json
 "sockopt": {
   "interface": "enp5s0"
 }
 ```
+
+- `proxy` and `direct` get the interface.
+- Outbounds with `dialerProxy` (like `dns-proxy`) or `protocol: dns` are left unbound — the script removes any `interface` from them.
 
 ## 🚀 Installation
 
@@ -53,7 +89,7 @@ sudo systemctl enable --now xray.service
 
 ### What the service does on every start
 
-1. Detects the active network interface (default route) and writes it into `config.json` (`sockopt.interface`)
+1. Detects the active physical interface from the default route (skipping `xray0`, `tun*`, `wg*`) and writes it into `config.json`
 2. Clears `access.log` and `error.log`
 3. Sets up TUN routes:
    ```bash
@@ -61,8 +97,15 @@ sudo systemctl enable --now xray.service
    ip link set dev xray0 up
    ip route add default via 10.10.10.10 dev xray0 metric 1
    ```
-4. Starts Xray, then re-applies routes once the TUN device is up
-5. If Xray crashes, systemd restarts everything after 5 seconds
+4. Sends all DNS traffic into the TUN with policy routing:
+   ```bash
+   ip route replace default dev xray0 table 100
+   ip rule add pref 100 ipproto udp dport 53 lookup 100
+   ip rule add pref 101 ipproto tcp dport 53 lookup 100
+   ```
+   Your system still thinks it talks to the router's DNS, but the query is intercepted and answered by Xray. If `xray0` disappears, table 100 becomes empty and DNS falls back to normal automatically.
+5. Starts Xray, then re-applies routes once the TUN device is up
+6. If Xray crashes, systemd restarts everything after 5 seconds
 
 ### Keeping routes alive across network changes
 
@@ -80,6 +123,31 @@ sudo chmod +x /etc/NetworkManager/dispatcher.d/fdirv
 
 The script is idempotent — running it multiple times is safe.
 
+## 🔍 Verifying DNS
+
+```bash
+nslookup google.com           # "Server" still shows your router — that's expected;
+                              # the answer should be a normal Google IP (not 216.239.38.120)
+dig +short whoami.akamai.net  # should be a Cloudflare/Google IP, not your ISP
+tail -f xray/error.log        # look for: taking detour [dns-proxy] ... DOH//cloudflare-dns.com got answer
+```
+
+Strongest check (if `tcpdump` is installed) — nothing should appear while you run `nslookup`:
+
+```bash
+sudo tcpdump -ni <your-interface> port 53
+```
+
+## 🛠️ Troubleshooting
+
+**Connection drops after setup** — usually the server IP is missing from `dns.hosts` (see Configuration). Restore the connection by removing the DNS rules:
+
+```bash
+sudo ip rule del pref 100
+sudo ip rule del pref 101
+sudo ip route flush table 100
+```
+
 ## 📋 Managing the Service
 
 ```bash
@@ -94,7 +162,7 @@ tail -f xray/error.log         # xray error log
 
 ```
 FDIRV/
-├── setup-xray.sh          # Interface detection, log cleanup, route setup
+├── setup-xray.sh          # Interface detection, log cleanup, TUN + DNS routing
 ├── xray.service           # Systemd unit
 └── xray/
     ├── config.json        # The single Xray config
